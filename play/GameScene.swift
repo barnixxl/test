@@ -8,81 +8,187 @@
 import SpriteKit
 import GameplayKit
 
-class GameScene: SKScene {
+class GameScene: SKScene, SKPhysicsContactDelegate {
     
-    private var label : SKLabelNode?
-    private var spinnyNode : SKShapeNode?
+    // Game objects
+    private var airplane: SKSpriteNode!
+    private var scoreLabel: SKLabelNode!
+    private var gameOverLabel: SKLabelNode!
+    
+    // Game state
+    private var score = 0
+    private var isGameOver = false
+    
+    // Physics categories
+    private let airplaneCategory: UInt32 = 0x1 << 0
+    private let obstacleCategory: UInt32 = 0x1 << 1
+    private let groundCategory: UInt32 = 0x1 << 2
+    
+    // Game settings
+    private let airplaneSpeed: CGFloat = 200
+    private let obstacleSpeed: CGFloat = 150
+    private let obstacleSpawnInterval: TimeInterval = 1.5
     
     override func didMove(to view: SKView) {
+        // Set up physics world
+        physicsWorld.contactDelegate = self
+        physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
         
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
-        }
+        // Set up background
+        backgroundColor = .skyBlue
         
-        // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
-        self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
+        // Create airplane
+        createAirplane()
         
-        if let spinnyNode = self.spinnyNode {
-            spinnyNode.lineWidth = 2.5
-            
-            spinnyNode.run(SKAction.repeatForever(SKAction.rotate(byAngle: CGFloat(Double.pi), duration: 1)))
-            spinnyNode.run(SKAction.sequence([SKAction.wait(forDuration: 0.5),
-                                              SKAction.fadeOut(withDuration: 0.5),
-                                              SKAction.removeFromParent()]))
-        }
+        // Create ground
+        createGround()
+        
+        // Create score label
+        createScoreLabel()
+        
+        // Create game over label
+        createGameOverLabel()
+        
+        // Start spawning obstacles
+        run(SKAction.repeatForever(
+            SKAction.sequence([
+                SKAction.run(spawnObstacle),
+                SKAction.wait(forDuration: obstacleSpawnInterval)
+            ])
+        ))
     }
     
-    
-    func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
-        }
+    private func createAirplane() {
+        airplane = SKSpriteNode(color: .red, size: CGSize(width: 50, height: 30))
+        airplane.position = CGPoint(x: frame.midX, y: frame.midY)
+        airplane.zPosition = 1
+        
+        // Set up physics body
+        airplane.physicsBody = SKPhysicsBody(rectangleOf: airplane.size)
+        airplane.physicsBody?.categoryBitMask = airplaneCategory
+        airplane.physicsBody?.contactTestBitMask = obstacleCategory | groundCategory
+        airplane.physicsBody?.collisionBitMask = groundCategory
+        airplane.physicsBody?.allowsRotation = false
+        airplane.physicsBody?.isDynamic = true
+        
+        addChild(airplane)
     }
     
-    func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
-        }
+    private func createGround() {
+        let ground = SKSpriteNode(color: .green, size: CGSize(width: frame.width, height: 50))
+        ground.position = CGPoint(x: frame.midX, y: 25)
+        ground.zPosition = 1
+        
+        ground.physicsBody = SKPhysicsBody(rectangleOf: ground.size)
+        ground.physicsBody?.categoryBitMask = groundCategory
+        ground.physicsBody?.isDynamic = false
+        
+        addChild(ground)
     }
     
-    func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
-        }
+    private func createScoreLabel() {
+        scoreLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        scoreLabel.text = "Счёт: 0"
+        scoreLabel.fontSize = 24
+        scoreLabel.fontColor = .white
+        scoreLabel.position = CGPoint(x: frame.midX, y: frame.maxY - 50)
+        scoreLabel.zPosition = 2
+        addChild(scoreLabel)
+    }
+    
+    private func createGameOverLabel() {
+        gameOverLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        gameOverLabel.text = "Игра окончена\nНажмите, чтобы начать заново"
+        gameOverLabel.fontSize = 30
+        gameOverLabel.fontColor = .white
+        gameOverLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+        gameOverLabel.zPosition = 2
+        gameOverLabel.isHidden = true
+        addChild(gameOverLabel)
+    }
+    
+    private func spawnObstacle() {
+        guard !isGameOver else { return }
+        
+        let obstacle = SKSpriteNode(color: .brown, size: CGSize(width: 30, height: 100))
+        obstacle.position = CGPoint(x: frame.maxX + obstacle.size.width,
+                                  y: CGFloat.random(in: obstacle.size.height...frame.maxY - obstacle.size.height))
+        obstacle.zPosition = 1
+        
+        obstacle.physicsBody = SKPhysicsBody(rectangleOf: obstacle.size)
+        obstacle.physicsBody?.categoryBitMask = obstacleCategory
+        obstacle.physicsBody?.isDynamic = false
+        
+        addChild(obstacle)
+        
+        let moveAction = SKAction.moveBy(x: -(frame.width + obstacle.size.width * 2),
+                                       y: 0,
+                                       duration: TimeInterval(frame.width / obstacleSpeed))
+        let removeAction = SKAction.removeFromParent()
+        obstacle.run(SKAction.sequence([moveAction, removeAction]))
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
+        if isGameOver {
+            restartGame()
+            return
         }
         
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
+        // Move airplane up
+        let moveUp = SKAction.moveBy(x: 0, y: 100, duration: 0.5)
+        moveUp.timingMode = .easeOut
+        airplane.run(moveUp)
     }
     
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
+    private func restartGame() {
+        // Reset game state
+        score = 0
+        isGameOver = false
+        scoreLabel.text = "Счёт: 0"
+        gameOverLabel.isHidden = true
+        
+        // Reset airplane position
+        airplane.position = CGPoint(x: frame.midX, y: frame.midY)
+        airplane.physicsBody?.velocity = .zero
+        
+        // Remove all obstacles
+        removeAllObstacles()
     }
     
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+    private func removeAllObstacles() {
+        enumerateChildNodes(withName: "obstacle") { node, _ in
+            node.removeFromParent()
+        }
     }
-    
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
-    }
-    
     
     override func update(_ currentTime: TimeInterval) {
-        // Called before each frame is rendered
+        guard !isGameOver else { return }
+        
+        // Check if airplane passed any obstacles
+        enumerateChildNodes(withName: "obstacle") { node, _ in
+            if node.position.x < self.airplane.position.x && !node.userData?["scored"] as? Bool ?? false {
+                self.score += 1
+                self.scoreLabel.text = "Счёт: \(self.score)"
+                node.userData = ["scored": true]
+            }
+        }
     }
+    
+    func didBegin(_ contact: SKPhysicsContact) {
+        let collision = contact.bodyA.categoryBitMask | contact.bodyB.categoryBitMask
+        
+        if collision == airplaneCategory | obstacleCategory ||
+           collision == airplaneCategory | groundCategory {
+            gameOver()
+        }
+    }
+    
+    private func gameOver() {
+        isGameOver = true
+        gameOverLabel.isHidden = false
+    }
+}
+
+extension UIColor {
+    static let skyBlue = UIColor(red: 0.529, green: 0.808, blue: 0.922, alpha: 1.0)
 }
